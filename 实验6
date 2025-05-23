@@ -1,0 +1,96 @@
+ORG    0000H
+LJMP   MAIN
+
+ORG    0023H           ; 串口中断入口地址
+LJMP   SERIAL_SERVICE  ; 转向中断服务程序
+
+ORG    0030H
+MAIN:  MOV   SP,#40H   ; 设置堆栈指针
+       MOV   TMOD,#20H ; 定时器1设为模式2
+       MOV   TL1,#0FDH ; 波特率9600bps
+       MOV   TH1,#0FDH ; 重装值
+       SETB  TR1       ; 启动定时器1
+       MOV   SCON,#50H ; 串口工作方式1，允许接收
+       SETB  ES        ; 使能串口中断
+       SETB  EA        ; 开总中断
+       
+       ACALL RESET_RECEIVE ; 初始化接收状态
+       
+LOOP:  SJMP  LOOP      ; 主循环等待中断
+
+; 重置接收状态
+RESET_RECEIVE:
+       MOV   R0,#20H   ; 设置接收数据存储起始地址
+       MOV   R7,#6     ; 设置接收字符数量(6位学号)
+       RET
+
+; 串口中断服务程序
+SERIAL_SERVICE:
+       JNB   RI,SEND_INT
+       CLR   RI
+       ACALL RECEIVE_CHAR
+       SJMP  INT_EXIT
+       
+SEND_INT:
+       CLR   TI
+       
+INT_EXIT:
+       RETI
+
+; 接收字符处理
+RECEIVE_CHAR:
+       MOV   A,SBUF    ; 读取接收数据
+       MOV   @R0,A     ; 存储到内存
+       INC   R0        ; 指向下一存储位置
+       DJNZ  R7,RET_RECEIVE
+       ACALL COMPARE_ID ; 接收完6个字符后进行比较
+RET_RECEIVE:
+       RET
+
+; 比较学号
+COMPARE_ID:
+       MOV   R0,#20H   ; 重置指针到接收缓冲区开始
+       MOV   DPTR,#MY_ID ; 指向预设学号
+       MOV   R7,#6     ; 比较6位
+COMP_LOOP:
+       MOV   A,@R0     ; 取接收的字符
+       MOV   B,A       ; 保存到B
+       CLR   A
+       MOVC  A,@A+DPTR ; 取预设字符
+       CJNE  A,B,NOT_MATCH ; 比较不同则跳转
+       INC   R0        ; 指向下一接收字符
+       INC   DPTR      ; 指向下一预设字符
+       DJNZ  R7,COMP_LOOP
+       ; 全部匹配，发送"YES"
+       MOV   DPTR,#YES_STR
+       ACALL SEND_STRING
+       ACALL RESET_RECEIVE ; 重置接收状态
+       RET
+       
+NOT_MATCH:
+       ; 不匹配，发送"NO"
+       MOV   DPTR,#NO_STR
+       ACALL SEND_STRING
+       ACALL RESET_RECEIVE ; 重置接收状态
+       RET
+
+; 发送字符串子程序
+SEND_STRING:
+       CLR   A
+       MOVC  A,@A+DPTR  ; 取字符
+       JZ    SEND_END   ; 如果是0则结束
+       MOV   SBUF,A     ; 发送字符
+WAIT_SEND:
+       JNB   TI,WAIT_SEND ; 等待发送完成
+       CLR   TI          ; 清除发送中断标志
+       INC   DPTR        ; 指向下一字符
+       SJMP  SEND_STRING ; 继续发送
+SEND_END:
+       RET
+
+; 数据区 - 使用ASCII码定义学号
+MY_ID:   DB   '060510',0  ; 预设学号(ASCII码形式)
+YES_STR: DB   'YES',0     ; YES字符串
+NO_STR:  DB   'NO',0      ; NO字符串
+
+END
