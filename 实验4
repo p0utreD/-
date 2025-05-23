@@ -1,0 +1,259 @@
+/**********************************************
+
+*  实验4：中断的原理及外部中断的使用
+
+*  功能：用杜邦线在J4插座上第8管脚与地触碰，模拟产生INT1中断信号
+
+*        在产生外部中断时，读取按键K1\K2\K3\K4，并在LED上显示
+
+*        对中断次数进行计数，并在6位数码管上显示出来
+
+******************************************************************/          
+
+  
+
+        ORG     0000H
+
+        LJMP    MAIN    ; 上电，转向主程序
+
+        ORG     0013H   ; 外部中断1入口地址
+
+        LJMP    INSER   ; 转向中断服务程序
+
+        ORG     0030H   ; 数据缓冲区
+
+COUNT:  DS 1            ; 中断计数值(一个字节，最大255)
+
+        ORG     0100H   ; 主程序
+
+  
+
+MAIN:  
+
+        ; 初始化中断
+
+        SETB    IT1     ; 选择边沿触发方式
+
+        SETB    EX1     ; 允许外部中断1中断
+
+        SETB    EA      ; CPU开中断
+
+        ; 初始化计数值
+
+        MOV     R0,#COUNT
+
+        MOV     @R0,#00H    ; 初始计数值为0
+
+        ; 初始化LED输出端口
+
+        MOV     P1,#0FFH    ; 初始化P1口，所有LED熄灭
+
+  
+
+LOOP:  
+
+        ; 显示当前计数值
+
+        LCALL   DISPLAY_COUNT
+
+        SJMP    LOOP    ; 等待中断
+
+  
+
+; 中断服务程序
+
+INSER:  
+
+        ; 读取按键K1\K2\K3\K4状态并显示在LED上
+
+        MOV     A,#0F0H     ; 设置P3.0~P3.3为输出，P3.4~P3.7为输入
+
+        MOV     P3,A        ; 配置P3口
+
+        MOV     A,P3        ; 读取P3口状态(高4位为按键状态)
+
+        SWAP    A           ; A的高、低四位互换
+
+        MOV     P1,A        ; 输出驱动LED发光
+
+        ; 增加中断计数值
+
+        MOV     R0,#COUNT
+
+        MOV     A,@R0
+
+        INC     A
+
+        MOV     @R0,A
+
+        ; 延时消抖
+
+        LCALL   DELAY_20MS
+
+        RETI                ; 中断返回
+
+  
+
+; 显示计数值到6位数码管
+
+DISPLAY_COUNT:
+
+        ; 获取当前计数值
+
+        MOV     R0,#COUNT
+
+        MOV     A,@R0
+
+        ; 将计数值转换为BCD码并显示在6位数码管上
+
+        MOV     B,#100      ; 除以100获取百位
+
+        DIV     AB
+
+        MOV     R2,A        ; R2 = 百位
+
+        MOV     A,B
+
+        MOV     B,#10       ; 除以10获取十位
+
+        DIV     AB
+
+        MOV     R3,A        ; R3 = 十位
+
+        MOV     R4,B        ; R4 = 个位
+
+        ; 显示百位(第4位数码管)
+
+        MOV     A,R2
+
+        LCALL   DISPLAY_DIGIT
+
+        MOV     A,#0F7H     ; 第4位数码管位码
+
+        MOV     P0,A
+
+        SETB    P2.7
+
+        NOP
+
+        NOP
+
+        CLR     P2.7
+
+        LCALL   DELAY_1MS
+
+        ; 显示十位(第5位数码管)
+
+        MOV     A,R3
+
+        LCALL   DISPLAY_DIGIT
+
+        MOV     A,#0FBH     ; 第5位数码管位码
+
+        MOV     P0,A
+
+        SETB    P2.7
+
+        NOP
+
+        NOP
+
+        CLR     P2.7
+
+        LCALL   DELAY_1MS
+
+        ; 显示个位(第6位数码管)
+
+        MOV     A,R4
+
+        LCALL   DISPLAY_DIGIT
+
+        MOV     A,#0FDH     ; 第6位数码管位码
+
+        MOV     P0,A
+
+        SETB    P2.7
+
+        NOP
+
+        NOP
+
+        CLR     P2.7
+
+        LCALL   DELAY_1MS
+
+        RET
+
+  
+
+; 显示一位数字
+
+DISPLAY_DIGIT:
+
+        MOV     DPTR,#TAB   ; 字型表头地址→DPTR
+
+        MOVC    A,@A+DPTR   ; 取出段码
+
+        MOV     P0,A        ; 送出段码
+
+        SETB    P2.6        ; 锁存段码
+
+        NOP
+
+        NOP
+
+        CLR     P2.6
+
+        RET
+
+  
+
+; 延时1毫秒
+
+DELAY_1MS:
+
+        MOV     R6,#1
+
+DELAY1_LOOP:
+
+        MOV     R7,#250
+
+DELAY2_LOOP:
+
+        DJNZ    R7,DELAY2_LOOP
+
+        DJNZ    R6,DELAY1_LOOP
+
+        RET
+
+  
+
+; 延时20毫秒(消抖用)
+
+DELAY_20MS:
+
+        MOV     R6,#20
+
+DELAY3_LOOP:
+
+        MOV     R7,#250
+
+DELAY4_LOOP:
+
+        DJNZ    R7,DELAY4_LOOP
+
+        DJNZ    R6,DELAY3_LOOP
+
+        RET
+
+  
+
+; 字型表
+
+TAB:    DB      3FH,06H,5BH,4FH,66H,6DH,7DH,07H,7FH  ; 0-8
+
+        DB      6FH,77H,7CH,39H,5EH,79H,71H,40H,00H  ; 9,A,b,C,d,E,F,-,空
+
+  
+
+        END
